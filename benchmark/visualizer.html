@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallel Recommendation Network - Performance Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-color: #f8fafc;
+            --accent-blue: #38bdf8;
+            --accent-green: #4ade80;
+            --accent-purple: #c084fc;
+            --border-color: #334155;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 24px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: var(--accent-blue);
+            font-size: 28px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        p.subtitle {
+            color: #94a3b8;
+            font-size: 15px;
+            margin-top: 0;
+            margin-bottom: 28px;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 18px;
+            margin-bottom: 28px;
+        }
+        .metric-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .metric-card h3 {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #94a3b8;
+            margin: 0 0 8px 0;
+        }
+        .metric-card .value {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--accent-green);
+        }
+        .metric-card .desc {
+            font-size: 13px;
+            color: #cbd5e1;
+            margin-top: 4px;
+        }
+        .chart-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+        .chart-container {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .chart-container h2 {
+            font-size: 18px;
+            color: #e2e8f0;
+            margin-top: 0;
+            margin-bottom: 16px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+            margin-top: 16px;
+        }
+        th, td {
+            padding: 14px 18px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+        th {
+            background-color: #334155;
+            color: #f1f5f9;
+            font-weight: 600;
+        }
+        tr:hover {
+            background-color: #243248;
+        }
+        .badge {
+            background: rgba(74, 222, 128, 0.15);
+            color: var(--accent-green);
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Parallel Recommendation Network Benchmarks</h1>
+        <p class="subtitle">Problem Q14: Item-Based Collaborative Filtering on Bipartite Graphs (OpenMP vs Sequential C)</p>
+
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <h3>Peak Speedup</h3>
+                <div class="value">9.92x</div>
+                <div class="desc">16 OpenMP Threads vs Sequential Baseline</div>
+            </div>
+            <div class="metric-card">
+                <h3>Top-K Verification</h3>
+                <div class="value">100.0%</div>
+                <div class="desc"><span class="badge">MATCHED</span> 0.00e+00 MAE Error</div>
+            </div>
+            <div class="metric-card">
+                <h3>Parallel Scaling</h3>
+                <div class="value">98.2%</div>
+                <div class="desc">Efficiency on 2 Cores (Near-Linear)</div>
+            </div>
+            <div class="metric-card">
+                <h3>Throughput</h3>
+                <div class="value">~78,000</div>
+                <div class="desc">User Recs Generated / sec</div>
+            </div>
+        </div>
+
+        <div class="chart-grid">
+            <div class="chart-container">
+                <h2>📈 Speedup vs. Number of Threads (Amdahl's Scaling)</h2>
+                <canvas id="speedupChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h2>⏱️ Execution Time Breakdown (Similarity vs Top-K Ranking)</h2>
+                <canvas id="timeChart"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <h2>📊 Experimental Benchmark Data Table</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Configuration</th>
+                        <th>Threads</th>
+                        <th>Similarity Matrix (s)</th>
+                        <th>Top-10 Recs (s)</th>
+                        <th>Total Time (s)</th>
+                        <th>Speedup</th>
+                        <th>Parallel Efficiency</th>
+                    </tr>
+                </thead>
+                <tbody id="benchmarkTable">
+                    <tr><td>Sequential Baseline</td><td>1</td><td>0.0230 s</td><td>0.3540 s</td><td>0.3770 s</td><td>1.00x</td><td>100.0%</td></tr>
+                    <tr><td>OpenMP</td><td>1</td><td>0.0140 s</td><td>0.3480 s</td><td>0.3630 s</td><td>1.04x</td><td>103.8%</td></tr>
+                    <tr><td>OpenMP</td><td>2</td><td>0.0180 s</td><td>0.1740 s</td><td>0.1920 s</td><td>1.96x</td><td>98.2%</td></tr>
+                    <tr><td>OpenMP</td><td>4</td><td>0.0060 s</td><td>0.0900 s</td><td>0.0970 s</td><td>3.89x</td><td>97.2%</td></tr>
+                    <tr><td>OpenMP</td><td>8</td><td>0.0040 s</td><td>0.0490 s</td><td>0.0540 s</td><td>6.98x</td><td>87.3%</td></tr>
+                    <tr><td>OpenMP</td><td>12</td><td>0.0030 s</td><td>0.0380 s</td><td>0.0420 s</td><td>8.98x</td><td>74.8%</td></tr>
+                    <tr><td>OpenMP</td><td>16</td><td>0.0040 s</td><td>0.0340 s</td><td>0.0380 s</td><td>9.92x</td><td>62.0%</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const threads = [1, 2, 4, 8, 12, 16];
+        const actualSpeedup = [1.04, 1.96, 3.89, 6.98, 8.98, 9.92];
+        const idealSpeedup = [1, 2, 4, 8, 12, 16];
+
+        // Speedup Chart
+        new Chart(document.getElementById('speedupChart'), {
+            type: 'line',
+            data: {
+                labels: threads.map(t => t + ' Threads'),
+                datasets: [
+                    {
+                        label: 'Measured OpenMP Speedup',
+                        data: actualSpeedup,
+                        borderColor: '#38bdf8',
+                        backgroundColor: 'rgba(56, 189, 248, 0.2)',
+                        borderWidth: 3,
+                        tension: 0.2,
+                        fill: true
+                    },
+                    {
+                        label: 'Ideal Linear Speedup (Theoretical)',
+                        data: idealSpeedup,
+                        borderColor: '#94a3b8',
+                        borderDash: [6, 6],
+                        borderWidth: 2,
+                        fill: false
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { labels: { color: '#f8fafc' } }
+                },
+                scales: {
+                    x: { ticks: { color: '#cbd5e1' }, grid: { color: '#334155' } },
+                    y: { ticks: { color: '#cbd5e1' }, grid: { color: '#334155' }, title: { display: true, text: 'Speedup Multiplier (x)', color: '#94a3b8' } }
+                }
+            }
+        });
+
+        // Time Breakdown Chart
+        new Chart(document.getElementById('timeChart'), {
+            type: 'bar',
+            data: {
+                labels: ['Sequential', '1 Thread', '2 Threads', '4 Threads', '8 Threads', '12 Threads', '16 Threads'],
+                datasets: [
+                    {
+                        label: 'Similarity Matrix Time (s)',
+                        data: [0.023, 0.014, 0.018, 0.006, 0.004, 0.003, 0.004],
+                        backgroundColor: '#c084fc'
+                    },
+                    {
+                        label: 'Top-K Recommendation Time (s)',
+                        data: [0.354, 0.348, 0.174, 0.090, 0.049, 0.038, 0.034],
+                        backgroundColor: '#38bdf8'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { labels: { color: '#f8fafc' } }
+                },
+                scales: {
+                    x: { stacked: true, ticks: { color: '#cbd5e1' }, grid: { color: '#334155' } },
+                    y: { stacked: true, ticks: { color: '#cbd5e1' }, grid: { color: '#334155' }, title: { display: true, text: 'Time (seconds)', color: '#94a3b8' } }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
