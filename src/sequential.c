@@ -1,3 +1,12 @@
+/**
+ * ============================================================================
+ * File: src/sequential.c
+ * Project: High-Performance Parallel Recommendation Engine (OpenMP)
+ * Description: Sequential Single-Core Reference Implementation of Item-Based
+ *              Collaborative Filtering (Cosine Similarity & Top-K Ranking).
+ * ============================================================================
+ */
+
 #include "recommender.h"
 #include "timer.h"
 #include <stdio.h>
@@ -5,6 +14,15 @@
 #include <string.h>
 #include <math.h>
 
+/**
+ * @brief Allocates and initializes RecommendationResults structure.
+ * 
+ * Initializes all recommendation item IDs to -1 and scores to 0.0.
+ * 
+ * @param num_users Number of users to allocate memory for.
+ * @param top_k Top-K recommendations depth.
+ * @return Allocated RecommendationResults pointer, or NULL on failure.
+ */
 RecommendationResults* allocate_results(int num_users, int top_k) {
     RecommendationResults *res = (RecommendationResults *)malloc(sizeof(RecommendationResults));
     if (!res) return NULL;
@@ -21,17 +39,31 @@ RecommendationResults* allocate_results(int num_users, int top_k) {
     return res;
 }
 
+/**
+ * @brief Safely deallocates memory held by RecommendationResults.
+ * @param res Pointer to structure to free.
+ */
 void free_results(RecommendationResults *res) {
     if (!res) return;
     if (res->recs) free(res->recs);
     free(res);
 }
 
-// Min-heap or insertion sort for maintaining top-K items per user
+/**
+ * @brief In-place insertion sort to maintain a descending Top-K recommendation buffer.
+ * 
+ * Maintains the highest K scores in O(K) time per candidate item.
+ * 
+ * @param top_k_arr Array of Recommendation structs of size K (sorted descending).
+ * @param k Number of elements in buffer.
+ * @param item_id Candidate item ID to insert.
+ * @param score Candidate predicted score.
+ */
 static void insert_top_k(Recommendation *top_k_arr, int k, int item_id, float score) {
+    // If the candidate score is lower than the lowest element currently in top-K, discard
     if (score <= top_k_arr[k - 1].score) return;
 
-    // Find insertion position
+    // Shift elements down to make room for new higher score
     int pos = k - 1;
     while (pos > 0 && top_k_arr[pos - 1].score < score) {
         top_k_arr[pos] = top_k_arr[pos - 1];
@@ -41,6 +73,23 @@ static void insert_top_k(Recommendation *top_k_arr, int k, int item_id, float sc
     top_k_arr[pos].score = score;
 }
 
+/**
+ * @brief Single-core sequential reference solver for Item-Based Collaborative Filtering.
+ * 
+ * Algorithm Steps:
+ * 1. Precompute L2-norms for all items: ||v_i|| = sqrt(sum(r^2))
+ * 2. Compute symmetric Cosine Similarity matrix using inverted index dot-products:
+ *    Sim(i, j) = (v_i . v_j) / (||v_i|| * ||v_j||)
+ * 3. Convert similarity matrix into sparse neighbor adjacency for cache efficiency.
+ * 4. For each user u, score unrated candidate items:
+ *    P_{u,j} = sum_{i in Rated(u)} (r_{u,i} * Sim(i,j)) / sum_{i in Rated(u)} |Sim(i,j)|
+ * 5. Extract top-K recommended items per user.
+ * 
+ * @param ds Input bipartite interaction dataset.
+ * @param top_k Number of top recommendations to generate per user.
+ * @param min_common_users Minimum co-raters required between items.
+ * @return Computed RecommendationResults with baseline timestamps.
+ */
 RecommendationResults* run_sequential_recommender(const Dataset *ds, int top_k, int min_common_users) {
     int num_users = ds->num_users;
     int num_items = ds->num_items;
@@ -53,7 +102,7 @@ RecommendationResults* run_sequential_recommender(const Dataset *ds, int top_k, 
     double t_total_start = get_time_sec();
 
     /* =========================================================================
-     * STAGE 1: Precompute Item L2-Norms
+     * STAGE 1: Precompute Item L2-Norms (Sequential)
      * ========================================================================= */
     float *item_norms = (float *)calloc(num_items, sizeof(float));
     for (int item = 0; item < num_items; item++) {
@@ -72,7 +121,7 @@ RecommendationResults* run_sequential_recommender(const Dataset *ds, int top_k, 
      * ========================================================================= */
     double t_sim_start = get_time_sec();
 
-    // Allocate flat symmetric similarity matrix
+    // Allocate flat dense similarity matrix
     float *sim_matrix = (float *)calloc((size_t)num_items * num_items, sizeof(float));
     float *dot_acc = (float *)calloc(num_items, sizeof(float));
     int *common_acc = (int *)calloc(num_items, sizeof(int));
@@ -91,12 +140,12 @@ RecommendationResults* run_sequential_recommender(const Dataset *ds, int top_k, 
             int u = item_user->col_idx[u_idx];
             float r_ui = item_user->values[u_idx];
 
-            // Traverse other items rated by user u
+            // Traverse other items j rated by user u
             int j_start = user_item->row_ptr[u];
             int j_end = user_item->row_ptr[u + 1];
             for (int j_idx = j_start; j_idx < j_end; j_idx++) {
                 int j = user_item->col_idx[j_idx];
-                if (j <= i) continue; // Only upper triangular for symmetry
+                if (j <= i) continue; // Upper triangular only (exploiting symmetry)
 
                 if (common_acc[j] == 0) {
                     touched_items[touched_count++] = j;
@@ -106,7 +155,7 @@ RecommendationResults* run_sequential_recommender(const Dataset *ds, int top_k, 
             }
         }
 
-        // Calculate cosine similarity for all touched items
+        // Compute cosine similarity and store symmetrically
         for (int idx = 0; idx < touched_count; idx++) {
             int j = touched_items[idx];
             if (common_acc[j] >= min_common_users) {
@@ -132,11 +181,11 @@ RecommendationResults* run_sequential_recommender(const Dataset *ds, int top_k, 
 
     /* =========================================================================
      * STAGE 3: Compute Top-K Recommendations for Every User (Sequential)
-     * Optimized: Build compact sparse similarity adjacency for non-zero entries
+     * Optimized: Convert dense similarity matrix to compact sparse adjacency
      * ========================================================================= */
     double t_rec_start = get_time_sec();
 
-    // 1. Build sparse row representations for fast neighbor lookup
+    // 1. Calculate degrees of non-zero similarities per item
     int *sim_deg = (int *)calloc(num_items, sizeof(int));
     for (int i = 0; i < num_items; i++) {
         const float *row = &sim_matrix[(size_t)i * num_items];
@@ -147,6 +196,7 @@ RecommendationResults* run_sequential_recommender(const Dataset *ds, int top_k, 
         sim_deg[i] = d;
     }
 
+    // 2. Build row pointers for sparse similarity index
     int *sim_row_ptr = (int *)calloc(num_items + 1, sizeof(int));
     for (int i = 0; i < num_items; i++) {
         sim_row_ptr[i + 1] = sim_row_ptr[i] + sim_deg[i];
@@ -174,8 +224,9 @@ RecommendationResults* run_sequential_recommender(const Dataset *ds, int top_k, 
     }
     free(write_cursor);
     free(sim_deg);
-    free(sim_matrix); // Free dense matrix early to conserve RAM
+    free(sim_matrix); // Free large dense matrix early to conserve RAM
 
+    // Working accumulators for ranking
     float *score_acc = (float *)calloc(num_items, sizeof(float));
     float *sim_sum_acc = (float *)calloc(num_items, sizeof(float));
     bool *rated_mask = (bool *)calloc(num_items, sizeof(bool));
@@ -185,14 +236,14 @@ RecommendationResults* run_sequential_recommender(const Dataset *ds, int top_k, 
         int u_start = user_item->row_ptr[u];
         int u_end = user_item->row_ptr[u + 1];
 
-        // Mark items already rated by user u
+        // Mark items already rated by user u (do not recommend items already watched)
         for (int idx = u_start; idx < u_end; idx++) {
             rated_mask[user_item->col_idx[idx]] = true;
         }
 
         int candidate_count = 0;
 
-        // Traverse only non-zero similarity neighbors
+        // Traverse non-zero similarity neighbors for all items rated by user u
         for (int idx = u_start; idx < u_end; idx++) {
             int i = user_item->col_idx[idx];
             float r_ui = user_item->values[idx];
@@ -220,7 +271,7 @@ RecommendationResults* run_sequential_recommender(const Dataset *ds, int top_k, 
             user_top_k[k].score = -1.0f;
         }
 
-        // Rank top-K candidates
+        // Rank candidate items using predicted rating formula
         for (int c = 0; c < candidate_count; c++) {
             int j = candidate_items[c];
             if (sim_sum_acc[j] > 1e-6f) {
@@ -231,7 +282,7 @@ RecommendationResults* run_sequential_recommender(const Dataset *ds, int top_k, 
             sim_sum_acc[j] = 0.0f;
         }
 
-        // Unmark rated mask
+        // Reset rated mask for user u
         for (int idx = u_start; idx < u_end; idx++) {
             rated_mask[user_item->col_idx[idx]] = false;
         }

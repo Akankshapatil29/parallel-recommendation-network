@@ -1,3 +1,12 @@
+/**
+ * ============================================================================
+ * File: src/main.c
+ * Project: High-Performance Parallel Recommendation Engine (OpenMP)
+ * Description: Main Entry Point, Interactive CLI Wizard, Multi-Core Scaling
+ *              Benchmarking Suite, and Results Exporter.
+ * ============================================================================
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +16,11 @@
 #include "recommender.h"
 #include "timer.h"
 
+/**
+ * @brief Prints the command-line usage manual and supported argument flags.
+ * 
+ * @param prog Executable name (argv[0]).
+ */
 static void print_usage(const char *prog) {
     printf("===================================================================\n");
     printf("   Parallel Graph Recommendation Engine (OpenMP & Sequential)      \n");
@@ -28,13 +42,22 @@ static void print_usage(const char *prog) {
     printf("===================================================================\n");
 }
 
+/**
+ * @brief Prints Top-K recommendations for an individual user.
+ * 
+ * Displays movie titles if loaded from metadata, or numeric item IDs.
+ * 
+ * @param u Zero-based user index.
+ * @param res Recommendation results containing predicted items and scores.
+ * @param ds Source dataset containing metadata titles.
+ */
 static void print_single_user_recs(int u, const RecommendationResults *res, const Dataset *ds) {
     if (u < 0 || u >= res->num_users) {
         printf("[Notice] User ID %d is outside the dataset range (0 to %d).\n", u, res->num_users - 1);
         return;
     }
     printf("-------------------------------------------------------------------\n");
-    printf("👤 User %d Top-%d Recommended Movies:\n", u, res->top_k);
+    printf("User %d Top-%d Recommended Movies:\n", u, res->top_k);
     int valid_count = 0;
     for (int k = 0; k < res->top_k; k++) {
         Recommendation r = res->recs[u * res->top_k + k];
@@ -52,6 +75,13 @@ static void print_single_user_recs(int u, const RecommendationResults *res, cons
     }
 }
 
+/**
+ * @brief Displays Top-K recommendations for a preview sample of users.
+ * 
+ * @param res Recommendation results structure.
+ * @param ds Source dataset with title mappings.
+ * @param num_users_to_print Number of sample users to preview.
+ */
 static void print_sample_recs(const RecommendationResults *res, const Dataset *ds, int num_users_to_print) {
     if (num_users_to_print <= 0) return;
     if (num_users_to_print > res->num_users) num_users_to_print = res->num_users;
@@ -63,7 +93,6 @@ static void print_sample_recs(const RecommendationResults *res, const Dataset *d
     // In MovieLens, User IDs start at 1, so if User 0 is empty, start from User 1
     int start_user = 1;
     if (ds && ds->user_item_csr.row_ptr[1] > 0) {
-        // User 0 has ratings, start from 0
         start_user = 0;
     }
 
@@ -75,10 +104,23 @@ static void print_sample_recs(const RecommendationResults *res, const Dataset *d
     printf("===================================================================\n");
 }
 
+/**
+ * @brief Core execution orchestrator: runs sequential and OpenMP solvers,
+ *        computes speedup & parallel efficiency, verifies correctness,
+ *        and optionally runs multi-core scaling benchmarks.
+ * 
+ * @param ds Active bipartite Dataset.
+ * @param top_k Top-K recommendation depth.
+ * @param min_common_users Minimum co-raters threshold.
+ * @param target_threads Number of OpenMP threads to allocate (0 = max cores).
+ * @param run_benchmark_mode If true, tests scaling across 1, 2, 4, 8, 12, 16 cores.
+ * @param export_csv_file Optional path to export CSV scaling metrics.
+ * @param num_preview_users Number of sample user recommendations to display.
+ */
 static void run_engine(Dataset *ds, int top_k, int min_common_users, int target_threads, bool run_benchmark_mode, const char *export_csv_file, int num_preview_users) {
     int max_system_threads = omp_get_max_threads();
 
-    // Calculate actual active user count (excluding empty user 0 if present)
+    // Calculate actual active user count
     int active_users = ds->num_users;
     if (ds->user_item_csr.row_ptr[1] == 0) {
         active_users = ds->num_users - 1;
@@ -95,18 +137,18 @@ static void run_engine(Dataset *ds, int top_k, int min_common_users, int target_
     printf("  Available CPU Cores     : %d logical cores\n", max_system_threads);
     printf("===================================================================\n\n");
 
-    /* ---------------------------------------------------------
-     * 1. RUN SEQUENTIAL IMPLEMENTATION
-     * --------------------------------------------------------- */
+    /* -------------------------------------------------------------------------
+     * 1. RUN SEQUENTIAL IMPLEMENTATION (1 Core Baseline)
+     * ------------------------------------------------------------------------- */
     printf("[1/3] Running Sequential Baseline Algorithm (1 Core)...\n");
     RecommendationResults *seq_res = run_sequential_recommender(ds, top_k, min_common_users);
     printf("      -> Movie Similarity Time   : %8.4f seconds\n", seq_res->time_similarity_sec);
     printf("      -> Top-%d Recs Ranking Time : %8.4f seconds\n", top_k, seq_res->time_recommendation_sec);
     printf("      -> Total Sequential Time   : %8.4f seconds\n\n", seq_res->time_total_sec);
 
-    /* ---------------------------------------------------------
+    /* -------------------------------------------------------------------------
      * 2. RUN PARALLEL OPENMP IMPLEMENTATION & VERIFICATION
-     * --------------------------------------------------------- */
+     * ------------------------------------------------------------------------- */
     int omp_threads = (target_threads > 0) ? target_threads : max_system_threads;
     printf("[2/3] Running OpenMP Parallel Algorithm (%d Threads/Cores)...\n", omp_threads);
     RecommendationResults *omp_res = run_parallel_omp_recommender(ds, top_k, min_common_users, omp_threads);
@@ -114,12 +156,15 @@ static void run_engine(Dataset *ds, int top_k, int min_common_users, int target_
     printf("      -> Top-%d Recs Ranking Time : %8.4f seconds\n", top_k, omp_res->time_recommendation_sec);
     printf("      -> Total OpenMP Time       : %8.4f seconds\n", omp_res->time_total_sec);
     
+    // Performance metrics calculation:
+    // Speedup = T_seq / T_par
+    // Parallel Efficiency = (Speedup / num_threads) * 100%
     double speedup = seq_res->time_total_sec / omp_res->time_total_sec;
     double efficiency = (speedup / (double)omp_threads) * 100.0;
     printf("      -> Speedup Achieved        : %8.2fx Faster!\n", speedup);
     printf("      -> Parallel Efficiency     : %8.2f %%\n\n", efficiency);
 
-    // Verify correctness
+    // Verify mathematical output equivalence
     printf("[3/3] Verifying Parallel Output Correctness against Sequential...\n");
     VerificationReport v_report = verify_results(seq_res, omp_res, 1e-4);
     print_verification_report(&v_report);
@@ -129,7 +174,7 @@ static void run_engine(Dataset *ds, int top_k, int min_common_users, int target_
         print_sample_recs(omp_res, ds, num_preview_users);
     }
 
-    // Allow interactive user search if interactive
+    // Interactive user ID inspection loop
     char search_buf[64];
     while (1) {
         printf("\nWould you like to view recommendations for a specific User ID?\n(Enter a User ID from 1 to %d, or press Enter to continue): ", active_users);
@@ -148,9 +193,9 @@ static void run_engine(Dataset *ds, int top_k, int min_common_users, int target_
         }
     }
 
-    /* ---------------------------------------------------------
-     * 3. MULTI-THREAD BENCHMARK & CSV EXPORT
-     * --------------------------------------------------------- */
+    /* -------------------------------------------------------------------------
+     * 3. MULTI-THREAD SCALING BENCHMARK & CSV EXPORT
+     * ------------------------------------------------------------------------- */
     if (run_benchmark_mode) {
         printf("\n=========================================================================================\n");
         printf("                   MULTI-THREAD SCALING BENCHMARK RESULTS TABLE                          \n");
@@ -204,13 +249,16 @@ static void run_engine(Dataset *ds, int top_k, int min_common_users, int target_
     free_results(omp_res);
 }
 
+/**
+ * @brief Interactive prompt wizard for executing experiments without command-line flags.
+ */
 static void run_interactive_wizard(void) {
     char input_buf[128];
     int max_threads = omp_get_max_threads();
 
     printf("\n");
     printf("===================================================================\n");
-    printf("    🎬 WELCOME TO THE PARALLEL RECOMMENDATION NETWORK ENGINE       \n");
+    printf("      WELCOME TO THE PARALLEL RECOMMENDATION NETWORK ENGINE        \n");
     printf("===================================================================\n");
     printf(" Detected CPU Hardware: %d Parallel Cores / Threads Available\n", max_threads);
     printf("-------------------------------------------------------------------\n\n");
@@ -339,7 +387,7 @@ static void run_interactive_wizard(void) {
             continue;
         }
 
-        // STEP 2: Top-K recommendations prompt with validation
+        // STEP 2: Top-K depth prompt with validation
         int top_k = 10;
         printf("\n>>> STEP 2: RECOMMENDATION DEPTH (TOP-K)\n");
         while (1) {
@@ -358,7 +406,7 @@ static void run_interactive_wizard(void) {
             printf("[Invalid Input] Please enter an integer between 1 and 50.\n");
         }
 
-        // STEP 3: Execution Mode prompt with simpler friendly names
+        // STEP 3: Execution Mode prompt
         int exec_mode = 1;
         printf("\n>>> STEP 3: HOW DO YOU WANT TO RUN THE TEST?\n");
         printf("  [1] Quick Test (Compare 1 Core vs %d Cores)\n", max_threads);
@@ -404,7 +452,7 @@ static void run_interactive_wizard(void) {
             }
         }
 
-        // STEP 4: Choose how many users to preview in recommendations
+        // STEP 4: Choose sample preview size
         int num_preview_users = 3;
         printf("\n>>> STEP 4: PREVIEW DISPLAY\n");
         while (1) {
@@ -423,7 +471,7 @@ static void run_interactive_wizard(void) {
             printf("[Invalid Input] Please enter an integer between 1 and 20.\n");
         }
 
-        // Run the engine
+        // Execute engine
         run_engine(ds, top_k, 2, target_threads, run_benchmark, "benchmark\\thread_scaling.csv", num_preview_users);
         free_dataset(ds);
 
@@ -439,13 +487,17 @@ static void run_interactive_wizard(void) {
     }
 }
 
+/**
+ * @brief Application entry point.
+ */
 int main(int argc, char *argv[]) {
-    // If no arguments were passed, run the Interactive User Prompt Wizard!
+    // If executed without CLI arguments, launch interactive wizard
     if (argc == 1) {
         run_interactive_wizard();
         return 0;
     }
 
+    // CLI argument defaults
     int num_users = 3000;
     int num_items = 1000;
     int avg_ratings = 40;
@@ -457,6 +509,7 @@ int main(int argc, char *argv[]) {
     const char *save_csv_file = NULL;
     const char *export_csv_file = NULL;
 
+    // Parse CLI flags
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-u") == 0 && i + 1 < argc) {
             num_users = atoi(argv[++i]);
@@ -482,6 +535,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // Handle dataset generation mode
     if (save_csv_file) {
         printf("  Generating and saving dataset (%d Users, %d Items) to: %s\n",
                num_users, num_items, save_csv_file);
@@ -494,6 +548,7 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    // Ingest dataset
     Dataset *ds = NULL;
     if (csv_file) {
         ds = load_csv_dataset(csv_file);
@@ -509,6 +564,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    // Execute engine
     run_engine(ds, top_k, min_common_users, target_threads, run_benchmark_mode, export_csv_file, 3);
     free_dataset(ds);
 
